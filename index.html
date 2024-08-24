@@ -1,0 +1,351 @@
+<!doctype html>
+<title>s(t)ick moves</title>
+
+<style>
+    html,
+    body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        display: block;
+    }
+
+    canvas {
+        width: 100%;
+        height: 100%;
+        border: 1px dashed black;
+    }
+</style>
+
+<canvas id="robotrun"></canvas>
+
+<script>
+    //-------------------------------Controller
+    class Controller {
+        constructor(ctx, jx, jy, jr, kx, ky, limit) {
+            // this.qS = qS;
+            this.ctx = ctx;
+            this.jx = jx;
+            this.jy = jy;
+            this.jr = jr;
+            this.kx = kx;
+            this.ky = ky;
+            this.lm = limit;
+            this.ctx.save();
+            // this.showControls = function () {
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = "rgba(0, 0, 0, 1)";
+            this.ctx.arc(this.jx, this.jy, this.jr, 0.5 * Math.PI, 2.5 * Math.PI);
+            this.ctx.arc(this.jx, this.jy, this.jr * 0.5, 0.5 * Math.PI, 2.5 * Math.PI);
+            this.ctx.lineWidth = 2;
+            this.ctx.stroke();
+            this.ctx.closePath();
+            this.ctx.beginPath();
+            this.ctx.arc(this.kx, this.ky, this.jr * 0.5, 0 * Math.PI, 2 * Math.PI);
+            this.ctx.stroke();
+            this.ctx.closePath();
+            // }
+            this.ctx.restore();
+        }
+    }
+    //-------------------------------Controller
+
+    class AnimObj2 {
+        constructor(spriteSheet, frameW, frameH) {
+            this.img = spriteSheet;
+            this.sourceW = frameW; //square
+            this.sourceH = frameH; //square
+            this.x = 0;
+            this.y = 0;
+            this.prX = 0;
+            this.prY = 0;
+            this.w = frameW;
+            this.h = frameH;
+            this.forward = true;
+            /* the actions array takes objects in the format:
+            {name, tFrames, cFrame, sourceX, sourceY: this.sourceW * index} */
+            this.actions = [];
+        };
+    };
+
+    //--------main program
+
+    let gameScreen = document.getElementById("robotrun").getContext("2d");
+    window.addEventListener("resize", gameScreenResize, false);
+    window.addEventListener("orientationchange", gameScreenResize, false);
+
+    let tBotFPS = 12;
+    let controllerOne;
+    let active = false;
+    let currentX;
+    let currentY;
+    let initialX;
+    let initialY;
+    let xOffset = 0;
+    let yOffset = 0;
+
+    let EASING = 0.1;
+    let saucrBank = 0;
+    let enemyDistance;
+    let xDist = 0;
+
+    gameScreen.canvas.width = window.innerWidth;
+    gameScreen.canvas.height = window.innerHeight;
+    gameScreen.canvas.addEventListener("mousedown", joystickStartHandler, false);
+    gameScreen.canvas.addEventListener("mousemove", joystickMoveHandler, false);
+    gameScreen.canvas.addEventListener("mouseup", joystickStopHandler, false);
+    gameScreen.canvas.addEventListener("touchstart", joystickStartHandler, false);
+    gameScreen.canvas.addEventListener("touchmove", joystickMoveHandler, false);
+    gameScreen.canvas.addEventListener("touchend", joystickStopHandler, false);
+
+    let joystickX = gameScreen.canvas.width * 0.5;
+    let joystickY = gameScreen.canvas.height * 0.85;
+    let joystickR = gameScreen.canvas.width * 0.05;
+    let knobX;
+    let knobY;
+    let knobValRawX = 0;
+    let knobValRawY = 0;
+    let knobDist = 0;
+    let knobRange = 300;
+    let knobValX = 0;
+    let knobValY = 0;
+    let lyr = 1;
+    let mBlur = 0;
+
+    function joystickStartHandler(e) {
+        if (e.type === "touchstart") {
+            initialX = e.touches[0].clientX - xOffset;
+            initialY = e.touches[0].clientY - yOffset;
+        } else {
+            initialX = e.clientX - xOffset;
+            initialY = e.clientY - yOffset;
+        }
+
+        knobX = joystickX;
+        knobY = joystickY;
+
+        active = true;
+    }
+    function joystickMoveHandler(e) {
+        if (active) {
+            e.preventDefault();
+            if (e.type === "touchmove") {
+                currentX = e.touches[0].clientX - initialX;
+                currentY = e.touches[0].clientY - initialY;
+            } else {
+                currentX = e.clientX - initialX;
+                currentY = e.clientY - initialY;
+            }
+            xOffset = currentX;
+            yOffset = currentY;
+            knobDist = distCalc(joystickX, joystickY, knobX, knobY);
+            if (knobDist <= knobRange) {
+                knobX = joystickX + xOffset;
+                knobY = joystickY + yOffset;
+            } else {
+                joystickStopHandler();
+            }
+            knobValRawX = knobX - joystickX;
+            knobValRawY = knobY - joystickY;
+            knobValX = Math.ceil(mapVal(knobValRawX, 0, knobRange, 0, 40));
+            knobValY = Math.ceil(mapVal(knobValRawY, 0, knobRange, 0, 40));
+        }
+    }
+
+    function joystickStopHandler() {
+        initialX = currentX;
+        initialY = currentY;
+        xOffset = 0;
+        yOffset = 0;
+        knobX = joystickX;
+        knobY = joystickY;
+        knobValRawX = 0;
+        knobValRawY = 0;
+        knobValX = knobValRawX;
+        knobValY = knobValRawY;
+        active = false;
+    }
+
+    //Create a tbRedIMG variable to hold the new image
+    let tbRedIMG = new Image();
+    let saucrIMG = new Image();
+
+    // Add a listener to the image to call the render function when the image has loaded
+    tbRedIMG.addEventListener("load", loadHandler, false);
+
+    //Assign the image's src property to the image you want to load
+    tbRedIMG.src = "assets/pencil_sprites_small.png";
+    saucrIMG.src = "assets/enemy.png";
+
+    //Create robot from animObj Constructor
+    let tbRed = new AnimObj2(tbRedIMG, 300, 300);
+    tbRed.w = gameScreen.canvas.height * 0.25;
+    tbRed.h = tbRed.w;
+    tbRed.x = gameScreen.canvas.width / 2 - tbRed.w / 2;
+    tbRed.y = gameScreen.canvas.height / 2 - tbRed.h / 2;
+    tbRed.actions.push(
+        { name: "stand", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 0 },
+        { name: "walkL", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 1 },
+        { name: "walkR", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 2 },
+        { name: "runL", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 3 },
+        { name: "runR", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 4 },
+        { name: "backFlipL", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 5 },
+        { name: "backFlipR", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 6 },
+        { name: "frontFlipL", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 7 },
+        { name: "frontFlipR", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 8 },
+        { name: "turnFlipL", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 9 },
+        { name: "turnFlipR", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 10 },
+        { name: "duck", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 11 },
+        { name: "abduct", tFrames: 8, cFrame: 0, sourceX: 0, sourceY: this.sourceW * 12 }
+    );
+
+    //Create enemy
+    let saucr = new AnimObj2(saucrIMG, 405, 405);
+    saucr.w = gameScreen.canvas.height * 0.25;
+    saucr.h = saucr.w;
+    saucr.x = 0;
+    saucr.y = gameScreen.canvas.height * 0.1;
+
+    function loadHandler() {
+        updateAnimation();
+    };
+
+    function mapVal(val, m1, m2, n1, n2) {
+        return (val - m2) / (m2 - m1) * (n2 - n1) + n2;
+    }
+
+    function distCalc(x0, y0, x1, y1) {
+        let xDiff = x0 - x1;
+        let yDiff = y0 - y1;
+        return Math.sqrt(Math.pow(xDiff, 2) + Math.pow(yDiff, 2));
+    }
+
+    function updateAnimation() {
+        setTimeout(function () {
+            //Create the animation loop
+            requestAnimationFrame(updateAnimation);
+            updateAnim();
+            if (active) {
+                if (tbRed.x < 0 - (tbRed.w / 2)) {
+                    tbRed.x = gameScreen.canvas.width - (tbRed.w / 2);
+                }
+                if (tbRed.x > gameScreen.canvas.width - (tbRed.w / 2)) {
+                    tbRed.x = 0 - tbRed.w / 2;
+                }
+                tbRed.x = tbRed.x + knobValX;
+            }
+            tbRed.y = gameScreen.canvas.height * 0.65 - tbRed.h;
+
+            enemyDistance = distCalc(tbRed.x, tbRed.y, saucr.x, saucr.y);
+            if (enemyDistance >= 1) {
+                saucr.x += ((tbRed.x + tbRed.w / 2) - saucr.x) * EASING;
+            }
+            tbRed.prX = tbRed.x;
+            tbRed.prY = tbRed.y;
+            render();
+        }, 1000 / tBotFPS);
+    };
+
+    function changeLYR() {
+        if (knobValY >= -5 && knobValY <= 5) {
+            if (knobValX > 2 && knobValX <= 15) {
+                lyr = 2; //walk right
+            } else if (knobValX > 15 && knobValX <= 40) {
+                lyr = 4; //run right
+            } else if (knobValX < -2 && knobValX >= -15) {
+                lyr = 1; //walk left
+            } else if (knobValX < -15 && knobValX >= -40) {
+                lyr = 3; //run left
+            } else {
+                lyr = 0; //stand
+            }
+        } else if (knobValY > -35 && knobValY < -5) {
+            if (knobValX > 2 && knobValX <= 15) {
+                lyr = 8; //forward flip right
+            } else if (knobValX > 15 && knobValX <= 40) {
+                lyr = 9; //twist flip right
+            } else if (knobValX < -2 && knobValX >= -15) {
+                lyr = 7; //forward flip left
+            } else if (knobValX < -15 && knobValX >= -40) {
+                lyr = 10; //twist flip left
+            } else {
+                lyr = 0; //stand
+            }
+        } else if (knobValY > 5 && knobValY < 35) {
+            if (knobValX > 2 && knobValX <= 40) {
+                lyr = 5; //back flip right
+            } else if (knobValX < -2 && knobValX >= -40) {
+                lyr = 6; //back flip left
+            } else {
+                lyr = 11; //crouch down
+            }
+        } else {
+            lyr = 0; //stand still
+        }
+    }
+
+    function render() {
+        changeLYR();
+        // gameScreen.clearRect(0, 0, gameScreen.canvas.width, gameScreen.canvas.height);
+        // joystickR = gameScreen.canvas.width * 0.5;
+        mBlur = mapVal(Math.abs(xOffset), 0, knobRange, 1, 0.75);
+        xDist = (saucr.x + (saucr.w / 2)) - (tbRed.x + (tbRed.w / 2));
+        if ((saucr.x + (saucr.w / 2)) > (tbRed.x + (tbRed.w / 2))) {
+            saucrBank = mapVal(Math.abs(xDist), 50, gameScreen.canvas.width, 0, -60);
+        } else if ((saucr.x + (saucr.w / 2)) < (tbRed.x + (tbRed.w / 2))) {
+            saucrBank = mapVal(Math.abs(xDist), 50, gameScreen.canvas.width, 0, 60);
+        } else {
+            saucrBank = 0;
+        }
+        // console.log(xDist);
+        // saucrBank = mapVal(Math.abs(xOffset), 0, knobRange, 0, 20);
+        gameScreen.beginPath();
+        gameScreen.rect(0, 0, gameScreen.canvas.width, gameScreen.canvas.height);
+        gameScreen.fillStyle = "rgba(255, 255, 255, " + mBlur + ")";
+        gameScreen.fill();
+        controllerOne = new Controller(gameScreen, joystickX, joystickY, joystickR, knobX, knobY, knobRange);
+        gameScreen.save();
+        gameScreen.translate(tbRed.x, tbRed.y);
+        gameScreen.drawImage(
+            tbRed.img,
+            tbRed.actions[lyr].sourceX, tbRed.actions[lyr].sourceY, tbRed.sourceW, tbRed.sourceW,
+            0, 0, tbRed.w, tbRed.h
+        );
+        gameScreen.restore();
+        gameScreen.save();
+        gameScreen.translate(saucr.x, saucr.y);
+        gameScreen.rotate(saucrBank * Math.PI / 180);
+        gameScreen.drawImage(saucr.img, 0, 0, saucr.sourceW, saucr.sourceH, 0 - saucr.w / 2, 0 - saucr.h / 2, saucr.w, saucr.h);
+        gameScreen.restore();
+    };
+
+    function updateAnim() {
+        changeLYR();
+        tbRed.actions[lyr].sourceX = tbRed.actions[lyr].cFrame * tbRed.sourceW;
+        tbRed.actions[lyr].sourceY = tbRed.sourceW * lyr;
+
+        if (tbRed.actions[lyr].cFrame >= tbRed.actions[lyr].tFrames - 1) {
+            tbRed.actions[lyr].cFrame = 0;
+        };
+        tbRed.actions[lyr].cFrame++;
+    };
+
+    function gameScreenResize() {
+        gameScreen.canvas.width = window.innerWidth;
+        gameScreen.canvas.height = window.innerHeight;
+        saucr.w = gameScreen.canvas.height * 0.25;
+        saucr.h = saucr.w;
+        saucr.y = gameScreen.canvas.height * 0.1;
+        tbRed.w = gameScreen.canvas.height * 0.25;
+        tbRed.h = tbRed.w;
+        joystickX = gameScreen.canvas.width * 0.5;
+        joystickY = gameScreen.canvas.height * 0.85;
+        joystickR = gameScreen.canvas.height * 0.05;
+        knobX = joystickX;
+        knobY = joystickY;
+        tbRed.x = gameScreen.canvas.width / 2 - tbRed.w / 2;
+        tbRed.y = gameScreen.canvas.height / 2 - tbRed.h / 2;
+    }
+
+</script>
